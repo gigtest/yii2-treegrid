@@ -64,6 +64,7 @@
             isCollapsed: isCollapsed,
             isSelected: isSelected,
             isFinded: isFinded,
+            isSearchIncluded: false,
             searchText: searchText
         };
     };
@@ -71,7 +72,8 @@
     var createTreegridIndex = function () {
         return {
             nodes: {},
-            orderedIds: []
+            orderedIds: [],
+            isSearchActive: false
         };
     };
 
@@ -279,6 +281,83 @@
         return nodes;
     };
 
+    var getContextRootIndexNodes = function (index) {
+        var nodes = getRootIndexNodes(index);
+
+        if (!index || !index.isSearchActive) {
+            return nodes;
+        }
+
+        var contextNodes = [];
+
+        for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].isSearchIncluded) {
+                contextNodes.push(nodes[i]);
+            }
+        }
+
+        return contextNodes;
+    };
+
+    var getContextChildIndexNodes = function (index, node) {
+        var nodes = getChildIndexNodes(index, node);
+
+        if (!index || !index.isSearchActive) {
+            return nodes;
+        }
+
+        var contextNodes = [];
+
+        for (var i = 0; i < nodes.length; i++) {
+            if (nodes[i].isSearchIncluded) {
+                contextNodes.push(nodes[i]);
+            }
+        }
+
+        return contextNodes;
+    };
+
+    var getDescendantIndexNodes = function(index, node) {
+        var descendants = [];
+        var childNodes = getChildIndexNodes(index, node);
+
+        for (var i = 0; i < childNodes.length; i++) {
+            descendants.push(childNodes[i]);
+
+            descendants = descendants.concat(
+                getDescendantIndexNodes(index, childNodes[i])
+            );
+        }
+
+        return descendants;
+    };
+
+    var isIndexNodeVisible = function (index, node) {
+        if (!index || !node) {
+            return false;
+        }
+
+        if (index.isSearchActive && !node.isSearchIncluded) {
+            return false;
+        }
+
+        var parentNode = getParentIndexNode(index, node);
+
+        while (parentNode) {
+            if (index.isSearchActive && !parentNode.isSearchIncluded) {
+                return false;
+            }
+
+            if (!parentNode.isExpanded) {
+                return false;
+            }
+
+            parentNode = getParentIndexNode(index, parentNode);
+        }
+
+        return true;
+    };
+
     var getSiblingIndexNodes = function (index, node) {
         if (!index || !node) {
             return [];
@@ -291,6 +370,24 @@
         var parentNode = getIndexNodeById(index, node.parentId);
 
         return parentNode ? getChildIndexNodes(index, parentNode) : [];
+    };
+
+    var getContextSiblingIndexNodes = function (index, node) {
+        var siblingNodes = getSiblingIndexNodes(index, node);
+
+        if (!index || !index.isSearchActive) {
+            return siblingNodes;
+        }
+
+        var contextNodes = [];
+
+        for (var i = 0; i < siblingNodes.length; i++) {
+            if (siblingNodes[i].isSearchIncluded) {
+                contextNodes.push(siblingNodes[i]);
+            }
+        }
+
+        return contextNodes;
     };
 
     var getRowElementsFromIndexNodes = function (nodes) {
@@ -567,7 +664,7 @@
         },
 
         /**
-         * Search nodes by indexed text
+         * Builds and activates search tree.
          *
          * @param {String} value
          * @returns {Node}
@@ -576,26 +673,64 @@
             var $this = $(this);
             var index = $this.treegrid('getIndex');
             var searchValue = String(value || '');
-
-            $this.treegrid('getFindedNodes').treegrid('setFindedState', false);
-            $this.treegrid('getSelectedNodes').treegrid('unselect');
+            var $allNodes = $this.treegrid('getAllNodes');
 
             if (!searchValue.length) {
                 return $this.treegrid('resetSearch');
             }
 
+            $this.treegrid('getSelectedNodes').treegrid('unselect');
+            $this.treegrid('getFindedNodes').treegrid('setFindedState', false);
+
+            $allNodes.treegrid('setSearchIncludedState', false);
+            $this.treegrid('setSearchActiveState', true);
+
             var matchedNodes = getMatchedIndexNodes(index, searchValue);
+            var includedNodeIds = {};
+            var includedNodes = [];
+            var ancestorNodeIds = {};
+            var ancestorNodes = [];
 
-            for (var i = 0; i < matchedNodes.length; i++) {
-                var node = matchedNodes[i];
-                var ancestorNodes = getAncestorIndexNodes(index, node).reverse();
-
-                for (var j = 0; j < ancestorNodes.length; j++) {
-                    ancestorNodes[j].jRow.treegrid('expand');
+            var addIncludedNode = function(node) {
+                if (!node || includedNodeIds[node.id]) {
+                    return;
                 }
 
-                node.jRow.treegrid('setFindedState', true);
+                includedNodeIds[node.id] = true;
+                includedNodes.push(node);
+            };
+
+            var addAncestorNode = function(node) {
+                if (!node || ancestorNodeIds[node.id]) {
+                    return;
+                }
+
+                ancestorNodeIds[node.id] = true;
+                ancestorNodes.push(node);
+            };
+
+            for (var i = 0; i < matchedNodes.length; i++) {
+                var matchedNode = matchedNodes[i];
+                var matchedAncestorNodes = getAncestorIndexNodes(index, matchedNode);
+                var matchedDescendantNodes = getDescendantIndexNodes(index, matchedNode);
+
+                addIncludedNode(matchedNode);
+
+                for (var j = 0; j < matchedAncestorNodes.length; j++) {
+                    addIncludedNode(matchedAncestorNodes[j]);
+                    addAncestorNode(matchedAncestorNodes[j]);
+                }
+
+                for (var k = 0; k < matchedDescendantNodes.length; k++) {
+                    addIncludedNode(matchedDescendantNodes[k]);
+                }
             }
+
+            $(getRowElementsFromIndexNodes(includedNodes)).treegrid('setSearchIncludedState', true);
+            $(getRowElementsFromIndexNodes(ancestorNodes)).treegrid('setExpandedState', true);
+            $(getRowElementsFromIndexNodes(matchedNodes)).treegrid('setFindedState', true);
+
+            $allNodes.treegrid('refreshVisibility');
 
             return $this;
         },
@@ -607,9 +742,15 @@
          */
         resetSearch: function() {
             var $this = $(this);
+            var $allNodes = $this.treegrid('getAllNodes');
 
             $this.treegrid('getSelectedNodes').treegrid('unselect');
             $this.treegrid('getFindedNodes').treegrid('setFindedState', false);
+
+            $this.treegrid('setSearchActiveState', false);
+            $allNodes.treegrid('setSearchIncludedState', false);
+
+            $allNodes.treegrid('refreshVisibility');
 
             return $this;
         },
@@ -624,25 +765,13 @@
 
             $this.find("#treegrid-expand-all").each(function () {
                 $(this).on("click", function() {
-                    var findedNodes = $this.treegrid("getFindedNodes");
-
-                    if (findedNodes.length > 0) {
-                        findedNodes.treegrid("expandRecursive");
-                    } else {
-                        $this.treegrid("expandAll");
-                    }
+                    $this.treegrid("expandAll");
                 });
             });
 
             $this.find("#treegrid-collapse-all").each(function () {
                 $(this).on("click", function() {
-                    var findedNodes = $this.treegrid("getFindedNodes");
-
-                    if (findedNodes.length > 0) {
-                        findedNodes.treegrid("collapseRecursive");
-                    } else {
-                        $this.treegrid("collapseAll");
-                    }
+                    $this.treegrid("collapseAll");
                 });
             });
         },
@@ -831,6 +960,43 @@
         },
 
         /**
+         * Sets search mode state.
+         *
+         * @param {Boolean} active
+         * @returns {Node}
+         */
+        setSearchActiveState: function(active) {
+            var $this = $(this);
+            var index = $this.treegrid('getIndex');
+
+            if (index) {
+                index.isSearchActive = active;
+            }
+
+            return $this;
+        },
+
+        /**
+         * Sets whether nodes belong to the current search tree.
+         *
+         * @param {Boolean} included
+         * @returns {Node}
+         */
+        setSearchIncludedState: function(included) {
+            return $(this).each(function () {
+                var $this = $(this);
+                var index = $this.treegrid('getIndex');
+                var node = getIndexNodeById(index, $this.treegrid('getNodeId'));
+
+                if (!node) {
+                    return;
+                }
+
+                node.isSearchIncluded = included;
+            });
+        },
+
+        /**
          * Возвращает найденные узлы при поиске
          *
          * @return {Node}
@@ -867,6 +1033,19 @@
         },
 
         /**
+         * Returns root nodes available in the current tree context.
+         *
+         * @returns {Node}
+         */
+        getContextRootNodes: function() {
+            var index = $(this).treegrid('getIndex');
+            var nodes = getContextRootIndexNodes(index);
+            var elements = getRowElementsFromIndexNodes(nodes);
+
+            return $(elements);
+        },
+
+        /**
          * Method return all nodes of tree
          *
          * @returns {Array}
@@ -895,15 +1074,6 @@
          */
         getNodeId: function() {
             return $(this).treegrid('getSetting', 'getNodeId').apply(this);
-        },
-
-        /**
-         * Method return parent id of node or null if root node
-         *
-         * @returns {String}
-         */
-        getParentNodeId: function() {
-            return $(this).treegrid('getSetting', 'getParentNodeId').apply(this);
         },
 
         /**
@@ -941,6 +1111,48 @@
         },
 
         /**
+         * Returns child nodes available in the current tree context.
+         *
+         * @returns {Node}
+         */
+        getContextChildNodes: function() {
+            var $this = $(this);
+            var index = $this.treegrid('getIndex');
+            var node = getIndexNodeById(
+                index,
+                $this.treegrid('getNodeId')
+            );
+            var nodes = getContextChildIndexNodes(index, node);
+            var elements = getRowElementsFromIndexNodes(nodes);
+
+            return $(elements);
+        },
+
+        /**
+         * Returns whether search mode is active.
+         *
+         * @returns {Boolean}
+         */
+        isSearchActive: function() {
+            var index = $(this).treegrid('getIndex');
+
+            return !!(index && index.isSearchActive);
+        },
+
+        /**
+         * Returns whether node belongs to the current search tree.
+         *
+         * @returns {Boolean}
+         */
+        isSearchIncluded: function() {
+            var $this = $(this);
+            var index = $this.treegrid('getIndex');
+            var node = getIndexNodeById(index, $this.treegrid('getNodeId'));
+
+            return !!(node && node.isSearchIncluded);
+        },
+
+        /**
          * Method return true if node is root
          *
          * @returns {Boolean}
@@ -961,9 +1173,12 @@
         isLeaf: function() {
             var $this = $(this);
             var index = $this.treegrid('getIndex');
-            var node = getIndexNodeById(index, $this.treegrid('getNodeId'));
+            var node = getIndexNodeById(
+                index,
+                $this.treegrid('getNodeId')
+            );
 
-            return getChildIndexNodes(index, node).length !== 0;
+            return getContextChildIndexNodes(index, node).length !== 0;
         },
 
         /**
@@ -975,7 +1190,7 @@
             var $this = $(this);
             var index = $this.treegrid('getIndex');
             var node = getIndexNodeById(index, $this.treegrid('getNodeId'));
-            var siblingNodes = getSiblingIndexNodes(index, node);
+            var siblingNodes = getContextSiblingIndexNodes(index, node);
 
             return !!(node && siblingNodes.length > 0 && siblingNodes[siblingNodes.length - 1].id === node.id);
         },
@@ -989,7 +1204,7 @@
             var $this = $(this);
             var index = $this.treegrid('getIndex');
             var node = getIndexNodeById(index, $this.treegrid('getNodeId'));
-            var siblingNodes = getSiblingIndexNodes(index, node);
+            var siblingNodes = getContextSiblingIndexNodes(index, node);
 
             return !!(node && siblingNodes.length > 0 && siblingNodes[0].id === node.id);
         },
@@ -1101,12 +1316,12 @@
         showExpandedChildren: function() {
             return this.each(function () {
                 var $this = $(this);
-                var children = $this.treegrid('getChildNodes');
+                var children = $this.treegrid('getContextChildNodes');
+
+                children.show();
 
                 children.each(function () {
                     var $child = $(this);
-
-                    $child.show();
 
                     if ($child.treegrid('isExpanded')) {
                         $child.treegrid('showExpandedChildren');
@@ -1124,7 +1339,9 @@
          */
         expandAll: function() {
             var $this = $(this);
-            $this.treegrid('getRootNodes').treegrid('expandRecursive');
+
+            $this.treegrid('getContextRootNodes').treegrid('expandRecursive');
+
             return $this;
         },
 
@@ -1145,7 +1362,9 @@
                     $this.treegrid('expand');
                 }
 
-                $this.treegrid('getChildNodes').treegrid('expandRecursive');
+                $this
+                    .treegrid('getContextChildNodes')
+                    .treegrid('expandRecursive');
             });
         },
 
@@ -1198,12 +1417,12 @@
         hideChildren: function() {
             return this.each(function () {
                 var $this = $(this);
-                var children = $this.treegrid('getChildNodes');
+                var children = $this.treegrid('getContextChildNodes');
+
+                children.hide();
 
                 children.each(function () {
                     var $child = $(this);
-
-                    $child.hide();
 
                     if ($child.treegrid('isExpanded')) {
                         $child.treegrid('hideChildren');
@@ -1221,7 +1440,9 @@
          */
         collapseAll: function() {
             var $this = $(this);
-            $this.treegrid('getRootNodes').treegrid('collapseRecursive');
+
+            $this.treegrid('getContextRootNodes').treegrid('collapseRecursive');
+
             return $this;
         },
 
@@ -1238,7 +1459,7 @@
                     return;
                 }
 
-                $this.treegrid('getChildNodes').treegrid('collapseRecursive');
+                $this.treegrid('getContextChildNodes').treegrid('collapseRecursive');
 
                 if ($this.treegrid('isExpanded')) {
                     $this.treegrid('collapse');
@@ -1338,11 +1559,13 @@
         selectRecursive: function () {
             return $(this).each(function() {
                 var $this = $(this);
+
                 if (!$this.treegrid('isSelected')) {
                     $this.trigger('select');
                 }
+
                 if ($this.treegrid('isLeaf')) {
-                    $this.treegrid('getChildNodes').treegrid('selectRecursive');
+                    $this.treegrid('getContextChildNodes').treegrid('selectRecursive');
                 }
             });
         },
@@ -1355,11 +1578,13 @@
         unselectRecursive: function () {
             return $(this).each(function() {
                 var $this = $(this);
+
                 if ($this.treegrid('isSelected')) {
                     $this.trigger('unselect');
                 }
+
                 if ($this.treegrid('isLeaf')) {
-                    $this.treegrid('getChildNodes').treegrid('unselectRecursive');
+                    $this.treegrid('getContextChildNodes').treegrid('unselectRecursive');
                 }
             });
         },
@@ -1377,7 +1602,35 @@
                 $this.treegrid('expand');
             }
             return $this;
-        }
+        },
+
+        /**
+         * Applies node visibility for the current tree context.
+         *
+         * @returns {Node}
+         */
+        refreshVisibility: function() {
+            var $nodes = $(this);
+            var elementsToShow = [];
+            var elementsToHide = [];
+
+            $nodes.each(function () {
+                var $this = $(this);
+                var index = $this.treegrid('getIndex');
+                var node = getIndexNodeById(index, $this.treegrid('getNodeId'));
+
+                if (isIndexNodeVisible(index, node)) {
+                    elementsToShow.push(this);
+                } else {
+                    elementsToHide.push(this);
+                }
+            });
+
+            $(elementsToHide).hide();
+            $(elementsToShow).show();
+
+            return $nodes;
+        },
     };
 
     $.fn.treegrid = function(method) {
