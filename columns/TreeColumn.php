@@ -3,13 +3,14 @@
 namespace Ja_D0\treegrid\columns;
 
 use Closure;
-use yii\base\Model;
+use Ja_D0\treegrid\TreeGrid;
 use yii\base\BaseObject;
+use yii\base\Model;
 use yii\data\ActiveDataProvider;
 use yii\db\ActiveQueryInterface;
+use yii\helpers\ArrayHelper;
 use yii\helpers\Html;
 use yii\helpers\Inflector;
-use yii\helpers\ArrayHelper;
 
 /**
  * Column is the base class of all [[TreeGrid]] column classes.
@@ -125,6 +126,16 @@ class TreeColumn extends BaseObject
     public $format = 'text';
 
     /**
+     * Является ли колонка основной колонкой дерева.
+     *
+     * Только для этой колонки содержимое ячейки будет оборачиваться
+     * в treegrid-разметку с indent / expander / icon.
+     *
+     * @var bool
+     */
+    public $isTreeColumn = false;
+
+    /**
      * Renders the header cell.
      */
     public function renderHeaderCell()
@@ -205,6 +216,7 @@ class TreeColumn extends BaseObject
 
     /**
      * Renders the data cell content.
+     *
      * @param mixed $model the data model
      * @param mixed $key the key associated with the data model
      * @param int $index the zero-based index of the data model among the models array returned by [[GridView::dataProvider]].
@@ -212,15 +224,112 @@ class TreeColumn extends BaseObject
      */
     protected function renderDataCellContent($model, $key, $index)
     {
-        if ($this->content === null) {
-            return $this->grid->formatter->format($this->getDataCellValue($model, $key, $index), $this->format);
-        } else {
-            if ($this->content !== null) {
-                return call_user_func($this->content, $model, $key, $index, $this);
-            } else {
-                return $this->grid->emptyCell;
-            }
+        $content = $this->renderBaseDataCellContent($model, $key, $index);
+
+        if ($this->isTreeColumn) {
+            return $this->renderTreeCellContent($content, $model, $key, $index);
         }
+
+        return $content;
+    }
+
+    /**
+     * Рендерит обычное содержимое ячейки без treegrid-обёртки.
+     *
+     * Это старая логика renderDataCellContent(), вынесенная отдельно,
+     * чтобы tree-колонка могла сначала получить обычный контент,
+     * а потом обернуть его в DOM-структуру дерева.
+     *
+     * @param mixed $model the data model
+     * @param mixed $key the key associated with the data model
+     * @param int $index the zero-based index of the data model among the models array returned by [[GridView::dataProvider]].
+     * @return string the rendering result
+     */
+    protected function renderBaseDataCellContent($model, $key, $index)
+    {
+        if ($this->content === null) {
+            return $this->grid->formatter->format(
+                $this->getDataCellValue($model, $key, $index),
+                $this->format
+            );
+        }
+
+        return call_user_func($this->content, $model, $key, $index, $this);
+    }
+
+    /**
+     * Рендерит содержимое tree-ячейки.
+     *
+     * @param string $content Исходное содержимое ячейки.
+     * @param mixed $model Текущая модель строки.
+     * @param mixed $key Ключ строки.
+     * @param int $index Индекс строки.
+     * @return string HTML содержимого tree-ячейки.
+     */
+    protected function renderTreeCellContent($content, $model, $key, $index)
+    {
+        $nodeId = $this->grid->getNodeId($model);
+        $indentGroupContent = $this->renderTreeIndents($nodeId);
+
+        if ($this->grid->nodeHasChildren($nodeId)) {
+            $indentGroupContent .= $this->renderTreeExpander();
+            $indentGroupContent .= $this->renderTreeExpanderIndentLine();
+        }
+
+        $indentGroupContent .= $this->renderTreeIcon();
+
+        $indentGroup = Html::tag('div', $indentGroupContent, ['class' => 'treegrid-indent-group']);
+        $cellContent = Html::tag('div', $content);
+
+        return Html::tag('div', $indentGroup . $cellContent, ['class' => 'treegrid-treecolumn-container']);
+    }
+
+    /**
+     * Рендерит набор span.treegrid-indent для узла.
+     *
+     * @param mixed $nodeId ID узла.
+     * @return string HTML indent-элементов.
+     */
+    protected function renderTreeIndents($nodeId)
+    {
+        $indentCount = $this->grid->getNodeIndentCount($nodeId);
+        $indents = [];
+
+        for ($i = 0; $i < $indentCount; $i++) {
+            $indents[] = Html::tag('span', '', ['class' => 'treegrid-indent']);
+        }
+
+        return implode('', $indents);
+    }
+
+    /**
+     * Рендерит expander узла.
+     *
+     * @return string HTML expander-элемента.
+     */
+    protected function renderTreeExpander()
+    {
+        return Html::tag('span', '', ['class' => 'treegrid-expander']);
+    }
+
+    /**
+     * Рендерит линию между expander и icon.
+     *
+     * @return string HTML линии expander-а.
+     */
+    protected function renderTreeExpanderIndentLine()
+    {
+        return Html::tag('span', '', ['class' => 'treegrid-expander-indent-line']);
+    }
+
+    /**
+     * Рендерит icon узла.
+     *
+     * @return string HTML icon-элемента.
+     */
+    protected function renderTreeIcon()
+    {
+        return Html::tag('span', '', ['class' => 'treegrid-icon']);
     }
 
     /**
