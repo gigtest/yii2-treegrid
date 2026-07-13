@@ -2,17 +2,17 @@
 
 namespace Ja_D0\treegrid;
 
-use Ja_D0\treegrid\columns\TreeColumn;
-use libphonenumber\ValidationResult;
-use Yii;
 use Closure;
-use yii\base\Widget;
+use Ja_D0\treegrid\columns\TreeColumn;
+use Yii;
 use yii\base\InvalidConfigException;
+use yii\base\Widget;
 use yii\grid\DataColumn;
+use yii\helpers\ArrayHelper;
 use yii\helpers\Html;
 use yii\helpers\Json;
-use yii\helpers\ArrayHelper;
 use yii\i18n\Formatter;
+use yii\web\JsExpression;
 
 /**
  * TreeGrid renders a jQuery TreeGrid component.
@@ -29,7 +29,7 @@ class TreeGrid extends Widget
     const SEARCH_POSITION_RIGHT = 'right';
 
     /**
-     * Определяет положение поля поиска справа в строке свободного пространства
+     * Определяет положение поля поиска слева в строке свободного пространства
      */
     const SEARCH_POSITION_LEFT = 'left';
 
@@ -66,9 +66,119 @@ class TreeGrid extends Widget
     public $tableContainerOptions = [];
 
     /**
-     * @var array The plugin options
+     * @var array дополнительные настройки JS-плагина
      */
     public $pluginOptions = [];
+
+    /**
+     * @var string начальное состояние дерева
+     */
+    public $initialState = 'collapsed';
+
+    /**
+     * @var bool сохранять ли состояние дерева
+     */
+    public $saveState = false;
+
+    /**
+     * @var string способ сохранения состояния дерева
+     */
+    public $saveStateMethod = 'cookie';
+
+    /**
+     * @var string имя сохраненного состояния дерева
+     */
+    public $saveStateName = 'tree-grid-state';
+
+    /**
+     * @var int индекс колонки, в которой отображается дерево
+     */
+    public $treeColumn = 0;
+
+    /**
+     * @var array индексы колонок, по которым выполняется поиск
+     */
+    public $searchColumns = [0];
+
+    /**
+     * @var bool разрешить множественный выбор
+     */
+    public $multipleSelect = false;
+
+    /**
+     * @var bool выбирать дочерние узлы рекурсивно
+     */
+    public $selectRecursive = false;
+
+    /**
+     * @var string CSS-класс раскрытого узла
+     */
+    public $expandedClass = 'treegrid-expanded';
+
+    /**
+     * @var string CSS-класс закрытого узла
+     */
+    public $collapsedClass = 'treegrid-collapsed';
+
+    /**
+     * @var string CSS-класс выбранного узла
+     */
+    public $selectedClass = 'treegrid-selected';
+
+    /**
+     * @var string CSS-класс найденного узла
+     */
+    public $findedClass = 'treegrid-finded';
+
+    /**
+     * @var string префикс CSS-класса узла
+     */
+    public $treeNodeClassPrefix = 'treegrid-';
+
+    /**
+     * @var string префикс CSS-класса родителя узла
+     */
+    public $treeParentNodeClassPrefix = 'treegrid-parent-';
+
+    /**
+     * @var string CSS-класс поля поиска
+     */
+    public $searchInputClass = 'treegrid-search';
+
+    /**
+     * @var string CSS-класс Bootstrap-поля поиска
+     */
+    public $searchInputControlClass = 'form-control';
+
+    /**
+     * @var string CSS-класс контейнера поиска
+     */
+    public $searchContainerClass = 'treegrid-search-container';
+
+    /**
+     * @var string CSS-класс иконки поиска
+     */
+    public $searchIconClass = 'treegrid-search-icon';
+
+    /**
+     * @var string CSS-класс обычной иконки поиска
+     */
+    public $searchLogoClass = 'search-logo';
+
+    /**
+     * @var string CSS-класс flex-контейнера управления деревом
+     */
+    public $treeFlexContainerClass = 'treegrid-flex-container';
+
+    /**
+     * @var string CSS-класс группы кнопок управления справа
+     */
+    public $manageButtonGroupRightClass = 'treegrid-manage-button-group-right';
+
+    /**
+     * @var string CSS-класс группы кнопок управления слева
+     */
+    public $manageButtonGroupLeftClass = 'treegrid-manage-button-group-left';
 
     /**
      * @var array аттрибуты HTML для тега контейнера свободного пространства
@@ -95,6 +205,7 @@ class TreeGrid extends Widget
      * @see \yii\helpers\Html::renderTagAttributes() for details on how attributes are being rendered.
      */
     public $headerRowOptions = [];
+
     /**
      * @var array the HTML attributes for the table footer row.
      * @see \yii\helpers\Html::renderTagAttributes() for details on how attributes are being rendered.
@@ -150,45 +261,26 @@ class TreeGrid extends Widget
 
     /**
      * @var array|Formatter the formatter used to format model attribute values into displayable texts.
-     * This can be either an instance of [[Formatter]] or an configuration array for creating the [[Formatter]]
-     * instance. If this property is not set, the "formatter" application component will be used.
      */
     public $formatter;
 
     /**
-     * @var array|Closure the HTML attributes for the table body rows. This can be either an array
-     * specifying the common HTML attributes for all body rows, or an anonymous function that
-     * returns an array of the HTML attributes. The anonymous function will be called once for every
-     * data model returned by [[dataProvider]]. It should have the following signature:
-     *
-     * ```php
-     * function ($model, $key, $index, $grid)
-     * ```
-     *
-     * - `$model`: the current data model being rendered
-     * - `$key`: the key value associated with the current data model
-     * - `$index`: the zero-based index of the data model in the model array returned by [[dataProvider]]
-     * - `$grid`: the GridView object
-     *
-     * @see \yii\helpers\Html::renderTagAttributes() for details on how attributes are being rendered.
+     * @var array|Closure the HTML attributes for the table body rows.
      */
     public $tableRowOptions = [];
 
     /**
      * @var Closure an anonymous function that is called once BEFORE rendering each data model.
-     * It should have the similar signature as [[rowOptions]]. The return result of the function
-     * will be rendered directly.
      */
     public $beforeTableRow;
 
     /**
      * @var Closure an anonymous function that is called once AFTER rendering each data model.
-     * It should have the similar signature as [[rowOptions]]. The return result of the function
-     * will be rendered directly.
      */
     public $afterTableRow;
 
     /**
+     * name of key column used to build tree
      * @var string name of key column used to build tree
      */
     public $keyColumnName;
@@ -204,14 +296,44 @@ class TreeGrid extends Widget
     public $parentRootValue = null;
 
     /**
-     * @var array grid column configuration. Each array element represents the configuration
-     * for one particular grid column.
-     * @see \yii\grid::$columns for details.
+     * Уровень узла по id.
+     *
+     * @var array
+     */
+    protected $treeNodeLevelById = [];
+
+    /**
+     * Признак наличия дочерних узлов по id.
+     *
+     * @var array
+     */
+    protected $treeNodeHasChildrenById = [];
+
+    /**
+     * Количество indent-span для корневого узла.
+     *
+     * Старый JS делал: getDepth() + 2.
+     *
+     * @var int
+     */
+    public $treeRootIndentCount = 2;
+
+    /**
+     * Прибавка indent-span на каждый уровень вложенности.
+     *
+     * Старый JS делал: parentDepth + 3.
+     *
+     * @var int
+     */
+    public $treeLevelIndentCount = 3;
+
+    /**
+     * @var array grid column configuration.
      */
     public $columns = [];
+
     /**
      * Initializes the grid view.
-     * This method will initialize required property values and instantiate [[columns]] objects.
      */
     public function init()
     {
@@ -250,7 +372,7 @@ class TreeGrid extends Widget
     public function run()
     {
         $id = $this->options['id'];
-        $options = Json::htmlEncode($this->pluginOptions);
+        $options = Json::htmlEncode($this->getClientOptions());
 
         $view = $this->getView();
         TreeGridAsset::register($view);
@@ -291,6 +413,42 @@ class TreeGrid extends Widget
     }
 
     /**
+     * Возвращает настройки JS-плагина.
+     *
+     * @return array
+     */
+    protected function getClientOptions(): array
+    {
+        return array_merge($this->pluginOptions, [
+            'initialState' => $this->initialState,
+            'saveState' => $this->saveState,
+            'saveStateMethod' => $this->saveStateMethod,
+            'saveStateName' => $this->saveStateName,
+            'treeColumn' => $this->treeColumn,
+            'searchColumns' => $this->searchColumns,
+            'multipleSelect' => $this->multipleSelect,
+            'selectRecursive' => $this->selectRecursive,
+            'expandedClass' => $this->expandedClass,
+            'collapsedClass' => $this->collapsedClass,
+            'selectedClass' => $this->selectedClass,
+            'findedClass' => $this->findedClass,
+            'getSearchInput' => new JsExpression($this->getSearchInputExpression()),
+        ]);
+    }
+
+    /**
+     * Возвращает JS-функцию получения поля поиска.
+     *
+     * @return string
+     */
+    protected function getSearchInputExpression(): string
+    {
+        $searchInputClass = addslashes($this->searchInputClass);
+
+        return "function () { return $(this).find('.{$searchInputClass}'); }";
+    }
+
+    /**
      * Рендерит контейнер с контентом над таблицей
      * @return string результат рендера
      */
@@ -303,9 +461,9 @@ class TreeGrid extends Widget
 
         if (!$this->showSearch) {
             if ($this->showTreeManageButtons && $this->searchPosition === self::SEARCH_POSITION_RIGHT) {
-                $buttonGroup = Html::tag("div", $expandAll . $collapseAll, ["class" => "treegrid-manage-button-group-right"]);
+                $buttonGroup = Html::tag("div", $expandAll . $collapseAll, ["class" => $this->manageButtonGroupRightClass]);
             } else if ($this->searchPosition === self::SEARCH_POSITION_LEFT) {
-                $buttonGroup = Html::tag("div", $expandAll. $collapseAll, ["class" => "treegrid-manage-button-group-left"]);
+                $buttonGroup = Html::tag("div", $expandAll . $collapseAll, ["class" => $this->manageButtonGroupLeftClass]);
             } else {
                 $buttonGroup = false;
             }
@@ -327,7 +485,7 @@ class TreeGrid extends Widget
         if ($this->showSearch || $this->showTreeManageButtons) {
             if ($search) {
                 Html::addCssClass($manageContentOptions, "col-sm-6");
-                Html::addCssClass($manageContentOptions, "treegrid-flex-container");
+                Html::addCssClass($manageContentOptions, $this->treeFlexContainerClass);
             } else if ($this->showTreeManageButtons) {
                 Html::addCssClass($manageContentOptions, "col-sm-2");
             }
@@ -347,7 +505,6 @@ class TreeGrid extends Widget
         }
 
         return Html::tag("div", implode("\n", $content), $this->containerRowOptions);
-
     }
 
     /**
@@ -356,11 +513,16 @@ class TreeGrid extends Widget
      */
     public function renderSearch(): string
     {
-        Html::addCssClass($this->searchInputOptions, "treegrid-search form-control");
-        Html::addCssClass($this->searchContainerOptions, "treegrid-search-container");
+        Html::addCssClass($this->searchInputOptions, $this->searchInputClass);
+        Html::addCssClass($this->searchInputOptions, $this->searchInputControlClass);
+        Html::addCssClass($this->searchContainerOptions, $this->searchContainerClass);
 
-        $searchLogo = Html::tag("span", options: ["class" => "treegrid-search-icon search-logo"]);
-        $searchInput = Html::input("text", options: $this->searchInputOptions);
+        $searchIconOptions = [];
+        Html::addCssClass($searchIconOptions, $this->searchIconClass);
+        Html::addCssClass($searchIconOptions, $this->searchLogoClass);
+
+        $searchLogo = Html::tag("span", '', $searchIconOptions);
+        $searchInput = Html::input("text", null, null, $this->searchInputOptions);
 
         return Html::tag("div", $searchLogo . $searchInput, $this->searchContainerOptions);
     }
@@ -371,8 +533,9 @@ class TreeGrid extends Widget
      */
     public function renderButtonExpandAll(): string
     {
-        $icon = Html::tag("span", options: ["id" => "treegrid-expand-all-icon"]);
-        return Html::a($icon, options: ["id" => "treegrid-expand-all", "class" => "btn btn-primary", "style" => "padding: 0; height: 34px; width: 34px;"]);
+        $icon = Html::tag("span", '', ["id" => "treegrid-expand-all-icon"]);
+
+        return Html::a($icon, null, ["id" => "treegrid-expand-all", "class" => "btn btn-primary", "style" => "padding: 0; height: 34px; width: 34px;"]);
     }
 
     /**
@@ -381,7 +544,8 @@ class TreeGrid extends Widget
      */
     public function renderButtonCollapseAll(): string
     {
-        $icon =  $icon = Html::tag("span", options: ["id" => "treegrid-collapse-all-icon"]);
+        $icon = Html::tag("span", '', ["id" => "treegrid-collapse-all-icon"]);
+
         return Html::button($icon, ["id" => "treegrid-collapse-all", "class" => "btn btn-danger", "style" => "padding: 0; height: 34px; width: 34px;"]);
     }
 
@@ -422,6 +586,7 @@ class TreeGrid extends Widget
     {
         $options = $this->emptyTextOptions;
         $tag = ArrayHelper::remove($options, 'tag', 'div');
+
         return Html::tag($tag, ($this->emptyText === null ? Yii::t('yii', 'No results found.') : $this->emptyText), $options);
     }
 
@@ -444,17 +609,29 @@ class TreeGrid extends Widget
         } else {
             $options = $this->tableRowOptions;
         }
-        $options['data-id'] = is_array($key) ? json_encode($key) : (string) $key;
 
-        $id = ArrayHelper::getValue($model, $this->keyColumnName);
-        Html::addCssClass($options, "treegrid-$id");
+        $options['data-id'] = is_array($key) ? json_encode($key) : (string)$key;
 
-        $parentId = ArrayHelper::getValue($model, $this->parentColumnName);
-        if ($parentId) {
-            if(ArrayHelper::getValue($this->pluginOptions, 'initialState') == 'collapsed'){
+        $id = $this->getNodeId($model);
+        Html::addCssClass($options, $this->treeNodeClassPrefix . $id);
+
+        if ($this->nodeHasChildren($id)) {
+            Html::addCssClass(
+                $options,
+                $this->isInitialStateCollapsed() ? $this->collapsedClass : $this->expandedClass
+            );
+        }
+
+        $parentId = $this->getParentNodeId($model);
+
+        if (!$this->isRootNodeParentId($parentId)) {
+            $options['data-parent-id'] = $parentId;
+
+            if ($this->isInitialStateCollapsed()) {
                 Html::addCssStyle($options, 'display: none;');
             }
-            Html::addCssClass($options, "treegrid-parent-$parentId");
+
+            Html::addCssClass($options, $this->treeParentNodeClassPrefix . $parentId);
         }
 
         return Html::tag('tr', implode('', $cells), $options);
@@ -472,6 +649,7 @@ class TreeGrid extends Widget
             $cells[] = $column->renderHeaderCell();
         }
         $content = Html::tag('tr', implode('', $cells), $this->headerRowOptions);
+
         return "<thead>\n" . $content . "\n</thead>";
     }
 
@@ -487,6 +665,7 @@ class TreeGrid extends Widget
             $cells[] = $column->renderFooterCell();
         }
         $content = Html::tag('tr', implode('', $cells), $this->footerRowOptions);
+
         return "<tfoot>\n" . $content . "\n</tfoot>";
     }
 
@@ -503,6 +682,7 @@ class TreeGrid extends Widget
         $this->dataProvider->setKeys(null);
         $this->dataProvider->prepare();
         $keys = $this->dataProvider->getKeys();
+
         foreach ($models as $index => $model) {
             $key = $keys[$index];
             if ($this->beforeTableRow !== null) {
@@ -524,10 +704,11 @@ class TreeGrid extends Widget
 
         if (empty($rows)) {
             $colspan = count($this->columns);
+
             return "<tr><td colspan=\"$colspan\">" . $this->renderEmpty() . "</td></tr>";
-        } else {
-            return implode("\n", $rows);
         }
+
+        return implode("\n", $rows);
     }
 
     /**
@@ -551,6 +732,9 @@ class TreeGrid extends Widget
                 unset($this->columns[$i]);
                 continue;
             }
+
+            $column->isTreeColumn = ((int)$i === $this->getTreeColumnIndex());
+
             $this->columns[$i] = $column;
         }
     }
@@ -592,22 +776,189 @@ class TreeGrid extends Widget
     }
 
     /**
-     * Normalize tree data
-     * @param array $data
-     * @param string $parentId
-     * @return array
+     * Нормализует данные дерева в плоский список с правильным порядком обхода.
+     *
+     * Дополнительно заполняет metadata дерева:
+     * - treeNodeLevelById: уровень вложенности узла;
+     * - treeNodeHasChildrenById: признак наличия дочерних узлов.
+     *
+     * @param array $data Исходный список моделей.
+     * @param mixed $parentId Значение parentId, с которого начинается обход дерева.
+     * @return array Плоский список моделей в порядке обхода дерева.
+     * @throws \Exception
      */
-    protected function normalizeData(array $data, $parentId = null) {
-        $result = [];
+    protected function normalizeData(array $data, $parentId = null): array
+    {
+        $childrenByParent = [];
+
         foreach ($data as $element) {
-            if (ArrayHelper::getValue($element, $this->parentColumnName) == $parentId) {
-                $result[] = $element;
-                $children = $this->normalizeData($data, ArrayHelper::getValue($element, $this->keyColumnName));
-                if ($children) {
-                    $result = array_merge($result, $children);
-                }
+            $currentParentId = ArrayHelper::getValue($element, $this->parentColumnName);
+            $parentKey = $this->normalizeTreeKey($currentParentId);
+
+            if (!isset($childrenByParent[$parentKey])) {
+                $childrenByParent[$parentKey] = [];
+            }
+
+            $childrenByParent[$parentKey][] = $element;
+        }
+
+        foreach ($data as $element) {
+            $nodeId = $this->getNodeId($element);
+            $nodeKey = $this->normalizeTreeKey($nodeId);
+
+            $this->treeNodeHasChildrenById[$nodeKey] = !empty($childrenByParent[$nodeKey]);
+        }
+
+        return $this->normalizeDataByParent($childrenByParent, $parentId, 0);
+    }
+
+    /**
+     * Рекурсивно собирает плоский список моделей по заранее построенному индексу детей.
+     *
+     * Во время обхода запоминает уровень вложенности каждого узла.
+     *
+     * @param array $childrenByParent Дети, сгруппированные по нормализованному parentId.
+     * @param mixed $parentId Текущий parentId.
+     * @param int $level Текущий уровень вложенности.
+     * @return array Плоский список моделей в порядке обхода дерева.
+     * @throws \Exception
+     */
+    protected function normalizeDataByParent(array $childrenByParent, $parentId = null, int $level = 0): array
+    {
+        $parentKey = $this->normalizeTreeKey($parentId);
+        $children = $childrenByParent[$parentKey] ?? [];
+
+        $result = [];
+
+        foreach ($children as $element) {
+            $nodeId = $this->getNodeId($element);
+            $nodeKey = $this->normalizeTreeKey($nodeId);
+
+            $this->treeNodeLevelById[$nodeKey] = $level;
+
+            $result[] = $element;
+
+            $nestedChildren = $this->normalizeDataByParent(
+                $childrenByParent,
+                $nodeId,
+                $level + 1
+            );
+
+            if ($nestedChildren) {
+                $result = array_merge($result, $nestedChildren);
             }
         }
+
         return $result;
+    }
+
+    /**
+     * Возвращает индекс колонки, в которой отображается дерево.
+     *
+     * @return int
+     * @throws \Exception
+     */
+    public function getTreeColumnIndex(): int
+    {
+        return (int)$this->treeColumn;
+    }
+
+    /**
+     * Возвращает ID узла дерева из модели.
+     *
+     * @param mixed $model
+     * @return mixed
+     * @throws \Exception
+     */
+    public function getNodeId($model)
+    {
+        return ArrayHelper::getValue($model, $this->keyColumnName);
+    }
+
+    /**
+     * Возвращает ID родительского узла из модели.
+     *
+     * @param mixed $model
+     * @return mixed
+     * @throws \Exception
+     */
+    public function getParentNodeId($model)
+    {
+        return ArrayHelper::getValue($model, $this->parentColumnName);
+    }
+
+    /**
+     * Нормализует значение id / parentId для использования во внутренних metadata-массивах дерева.
+     *
+     * @param mixed $value
+     * @return string
+     */
+    protected function normalizeTreeKey($value): string
+    {
+        if ($value === null || $value === '') {
+            return '__treegrid_root__';
+        }
+
+        return (string)$value;
+    }
+
+    /**
+     * Проверяет, что parentId указывает на корневой уровень дерева.
+     *
+     * @param mixed $parentId
+     * @return bool
+     */
+    protected function isRootNodeParentId($parentId): bool
+    {
+        return $parentId == $this->parentRootValue;
+    }
+
+    /**
+     * Проверяет, есть ли у узла дочерние элементы.
+     *
+     * @param mixed $nodeId
+     * @return bool
+     */
+    public function nodeHasChildren($nodeId): bool
+    {
+        $nodeKey = $this->normalizeTreeKey($nodeId);
+
+        return !empty($this->treeNodeHasChildrenById[$nodeKey]);
+    }
+
+    /**
+     * Возвращает уровень вложенности узла.
+     *
+     * Корневые узлы имеют уровень 0.
+     *
+     * @param mixed $nodeId
+     * @return int
+     */
+    public function getNodeLevel($nodeId): int
+    {
+        $nodeKey = $this->normalizeTreeKey($nodeId);
+
+        return $this->treeNodeLevelById[$nodeKey] ?? 0;
+    }
+
+    /**
+     * Возвращает количество span.treegrid-indent для узла.
+     *
+     * @param mixed $nodeId
+     * @return int
+     */
+    public function getNodeIndentCount($nodeId): int
+    {
+        return $this->treeRootIndentCount + ($this->getNodeLevel($nodeId) * $this->treeLevelIndentCount);
+    }
+
+    /**
+     * Проверяет начальное состояние дерева.
+     *
+     * @return bool
+     */
+    protected function isInitialStateCollapsed(): bool
+    {
+        return $this->initialState === 'collapsed';
     }
 }
